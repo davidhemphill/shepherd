@@ -1,0 +1,28 @@
+#!/usr/bin/env php
+<?php
+
+// Find autoloader
+$autoloadPaths = [
+    __DIR__ . '/../vendor/autoload.php',           // Local development
+    __DIR__ . '/../../../autoload.php',            // Installed as global composer package
+];
+
+$autoloader = null;
+foreach ($autoloadPaths as $path) {
+    if (file_exists($path)) {
+        $autoloader = $path;
+        break;
+    }
+}
+
+if ($autoloader === null) {
+    fwrite(STDERR, "Could not find autoloader. Run 'composer install' first.\n");
+    exit(1);
+}
+
+require $autoloader;
+
+use Shep\Application;
+
+$app = new Application();
+$app->run();
