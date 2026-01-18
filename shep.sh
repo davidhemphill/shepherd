@@ -63,10 +63,40 @@ worktree_exists() {
     [[ -d "$path" ]]
 }
 
+# Get the main repo root (not worktree root)
+get_main_repo_root() {
+    local git_common_dir
+    git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+
+    if [[ "$git_common_dir" == ".git" ]]; then
+        # We're in the main repo
+        get_repo_root
+    else
+        # We're in a worktree, get the main repo path
+        dirname "$git_common_dir"
+    fi
+}
+
 # Get Herd site name for a branch
+# Transforms "pushsilver.dev" + "feature" into "pushsilver-feature.dev"
 get_herd_site_name() {
     local branch="$1"
-    echo "pushsilver-$branch"
+    local repo_root
+    repo_root=$(get_main_repo_root)
+    local repo_name
+    repo_name=$(basename "$repo_root")
+
+    # Split repo name on first dot: "pushsilver.dev" -> "pushsilver" + "dev"
+    local base="${repo_name%%.*}"
+    local suffix="${repo_name#*.}"
+
+    if [[ "$suffix" != "$repo_name" ]]; then
+        # Has a suffix (e.g., pushsilver.dev -> pushsilver-branch.dev)
+        echo "$base-$branch.$suffix"
+    else
+        # No suffix (e.g., myapp -> myapp-branch)
+        echo "$repo_name-$branch"
+    fi
 }
 
 # Link worktree to Herd
@@ -83,6 +113,12 @@ link_to_herd() {
 
     # Link the site (run from worktree directory)
     (cd "$worktree_path" && herd link "$site_name")
+
+    # Secure the site with HTTPS
+    herd secure "$site_name" &>/dev/null
+
+    # Restart Herd to refresh the GUI
+    herd restart &>/dev/null
 }
 
 # Unlink worktree from Herd
@@ -155,6 +191,40 @@ confirm() {
     [[ "$response" =~ ^[Yy]$ ]]
 }
 
+# Provision a worktree (shared by new and init)
+provision_worktree() {
+    local worktree_path="$1"
+    local branch="$2"
+
+    # Setup environment
+    info "Setting up environment..."
+    setup_environment "$worktree_path"
+
+    # Install composer dependencies
+    info "Running composer install..."
+    (cd "$worktree_path" && composer install --quiet)
+
+    # Optionally generate application key
+    if confirm "Generate application key?" "y"; then
+        info "Generating application key..."
+        (cd "$worktree_path" && php artisan key:generate --quiet)
+    fi
+
+    # Optionally run migrations with seeding
+    if confirm "Run migrations with seeding?" "n"; then
+        info "Running migrations with seeding..."
+        (cd "$worktree_path" && php artisan migrate --seed --quiet)
+    fi
+
+    # Link to Herd
+    local site_name
+    site_name=$(get_herd_site_name "$branch")
+    info "Linking to Herd as '$site_name'..."
+    if link_to_herd "$worktree_path" "$branch"; then
+        success "Site available at: https://$site_name.test"
+    fi
+}
+
 # Command: new
 cmd_new() {
     local branch="$1"
@@ -190,14 +260,52 @@ cmd_new() {
     info "Creating worktree for '$branch'..."
     git worktree add "$worktree_path" "$branch"
 
-    # Setup environment
-    info "Setting up environment..."
-    setup_environment "$worktree_path"
+    # Run provisioning
+    provision_worktree "$worktree_path" "$branch"
 
     success "Worktree created at: $worktree_path"
 
     # Output path for shell wrapper to cd into
     echo "$worktree_path"
+}
+
+# Command: init (provision existing worktree)
+cmd_init() {
+    local branch="$1"
+
+    check_git_repo || return 1
+
+    local worktree_path
+
+    if [[ -z "$branch" ]]; then
+        # No branch specified, use current directory
+        worktree_path=$(pwd)
+        # Get branch name from current directory
+        branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+        if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
+            error "Could not determine branch name. Please specify a branch."
+            echo "Usage: shep init [branch]"
+            return 1
+        fi
+
+        info "Provisioning current directory as '$branch'..."
+    else
+        # Branch specified, check if worktree exists
+        if ! worktree_exists "$branch"; then
+            error "Worktree for branch '$branch' does not exist."
+            echo "Use 'shep new $branch' to create it."
+            return 1
+        fi
+
+        worktree_path=$(get_worktree_path "$branch")
+        info "Provisioning worktree '$branch'..."
+    fi
+
+    # Run provisioning
+    provision_worktree "$worktree_path" "$branch"
+
+    success "Provisioning complete for '$branch'"
 }
 
 # Command: remove
@@ -220,7 +328,14 @@ cmd_remove() {
     local worktree_path
     worktree_path=$(get_worktree_path "$branch")
 
+    local site_name
+    site_name=$(get_herd_site_name "$branch")
+
     if confirm "Remove worktree at '$worktree_path'?" "n"; then
+        # Unlink from Herd first
+        info "Unlinking from Herd..."
+        unlink_from_herd "$branch"
+
         info "Removing worktree '$branch'..."
         git worktree remove "$worktree_path" --force
         git worktree prune
@@ -273,12 +388,15 @@ Usage: shep <command> [arguments]
 
 Commands:
   new <branch>      Create a new worktree for a branch
+  init [branch]     Provision an existing worktree (or current directory)
   remove <branch>   Remove a worktree
   list              List all worktrees
   help              Show this help message
 
 Examples:
   shep new feature-login    Create worktree for feature-login branch
+  shep init                 Provision the current directory
+  shep init feature-login   Provision existing worktree
   shep remove feature-login Remove the worktree
   shep list                 Show all worktrees
 
@@ -315,6 +433,9 @@ shep() {
                 return $exit_code
             fi
             ;;
+        init)
+            cmd_init "$@"
+            ;;
         remove)
             cmd_remove "$@"
             ;;
@@ -340,6 +461,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "$cmd" in
         new)
             cmd_new "$@"
+            ;;
+        init)
+            cmd_init "$@"
             ;;
         remove)
             cmd_remove "$@"
