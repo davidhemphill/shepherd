@@ -3,7 +3,8 @@ version: 2
 project_name: shep
 
 builds:
-  - binary: shep
+  - main: ./cmd/shep
+    binary: shep
     env:
       - CGO_ENABLED=0
     goos:

@@ -16,7 +16,7 @@ The CLI command is `shep`.
 ### Using Go
 
 ```bash
-go install github.com/davidhemphill/shepherd@latest
+go install github.com/davidhemphill/shepherd/cmd/shep@latest
 ```
 
 ### Download Binary
