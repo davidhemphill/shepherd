@@ -137,6 +137,7 @@ unlink_from_herd() {
 # Setup environment for Laravel
 setup_environment() {
     local worktree_path="$1"
+    local branch="$2"
 
     # Copy .env.example to .env if needed
     if [[ ! -f "$worktree_path/.env" && -f "$worktree_path/.env.example" ]]; then
@@ -150,8 +151,20 @@ setup_environment() {
     local db_path="$worktree_path/database/database.sqlite"
     touch "$db_path"
 
+    # Get the site URL for this worktree
+    local site_name
+    site_name=$(get_herd_site_name "$branch")
+    local app_url="https://$site_name.test"
+
     # Update .env if it exists
     if [[ -f "$worktree_path/.env" ]]; then
+        # Update APP_URL
+        if grep -q "^APP_URL=" "$worktree_path/.env"; then
+            sed -i '' "s|^APP_URL=.*|APP_URL=$app_url|" "$worktree_path/.env"
+        else
+            echo "APP_URL=$app_url" >> "$worktree_path/.env"
+        fi
+
         # Update DB_CONNECTION
         if grep -q "^DB_CONNECTION=" "$worktree_path/.env"; then
             sed -i '' 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/' "$worktree_path/.env"
@@ -198,7 +211,7 @@ provision_worktree() {
 
     # Setup environment
     info "Setting up environment..."
-    setup_environment "$worktree_path"
+    setup_environment "$worktree_path" "$branch"
 
     # Install composer dependencies
     info "Running composer install..."
@@ -222,6 +235,14 @@ provision_worktree() {
     info "Linking to Herd as '$site_name'..."
     if link_to_herd "$worktree_path" "$branch"; then
         success "Site available at: https://$site_name.test"
+    fi
+
+    # Offer to run npm run dev if package.json exists
+    if [[ -f "$worktree_path/package.json" ]]; then
+        if confirm "Run 'npm run dev'?" "n"; then
+            info "Starting npm run dev..."
+            (cd "$worktree_path" && npm run dev)
+        fi
     fi
 }
 
