@@ -1,0 +1,39 @@
+version: 2
+
+project_name: shep
+
+builds:
+  - binary: shep
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+# Uncomment to auto-publish to a Homebrew tap (requires separate repo + PAT)
+# brews:
+#   - repository:
+#       owner: YOUR_USERNAME
+#       name: homebrew-tap
+#     homepage: "https://github.com/YOUR_USERNAME/shepherd"
+#     description: "Laravel Worktree Manager"
+#     install: |
+#       bin.install "shep"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
