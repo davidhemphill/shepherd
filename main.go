@@ -548,7 +548,7 @@ func cmdList() int {
 }
 
 func cmdHelp() {
-	help := `Shep - Laravel Worktree Manager
+	help := `Shepherd - Laravel Worktree Manager
 
 Usage: shep <command> [arguments]
 

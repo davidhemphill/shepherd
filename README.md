@@ -1,6 +1,8 @@
-# Shep
+# Shepherd
 
 A CLI tool for managing Git worktrees in Laravel projects, with automatic Laravel Herd integration.
+
+The CLI command is `shep`.
 
 ## Features
 
